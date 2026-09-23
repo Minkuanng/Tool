@@ -31,9 +31,8 @@
     // ================================================================
     const CONFIG_KEY = 'kuandev_config_v3';
     const POS_KEY    = 'kuandev_ui_position_v3';
-    const MODE_KEY   = 'kuandev_ui_mode_v3';
-    const MINI_KEY   = 'kuandev_ui_mini_v3';
-    const TAB_KEY    = 'kuandev_ui_tab_v3';
+    const VIEW_KEY   = 'kuandev_ui_view_v8';
+    const HIDE_KEY   = 'kuandev_ui_hidden_v8';
 
     function saveConfig() {
         try {
@@ -74,7 +73,6 @@
         } catch { return false; }
     }
 
-    // --- Vị trí UI ---
     function saveUIPosition(left, top) {
         try { localStorage.setItem(POS_KEY, JSON.stringify({ left, top, ts: Date.now() })); } catch {}
     }
@@ -85,32 +83,18 @@
         } catch {}
         return null;
     }
-
-    // --- Chế độ compact / full ---
-    function saveUIMode(mode) { try { localStorage.setItem(MODE_KEY, mode); } catch {} }
-    function loadUIMode() {
+    function saveView(v) { try { localStorage.setItem(VIEW_KEY, v); } catch {} }
+    function loadView() {
         try {
-            const m = localStorage.getItem(MODE_KEY);
-            if (m === 'compact' || m === 'full') return m;
-        } catch {}
-        return 'compact';
-    }
-
-    // --- Trạng thái thu gọn (mini) ---
-    function saveUIMini(isMini) { try { localStorage.setItem(MINI_KEY, isMini ? '1' : '0'); } catch {} }
-    function loadUIMini() {
-        try { return localStorage.getItem(MINI_KEY) === '1'; } catch {}
-        return false;
-    }
-
-    // --- Tab đang mở ---
-    function saveUITab(tab) { try { localStorage.setItem(TAB_KEY, tab); } catch {} }
-    function loadUITab() {
-        try {
-            const t = localStorage.getItem(TAB_KEY);
-            if (['run','log','settings'].includes(t)) return t;
+            const v = localStorage.getItem(VIEW_KEY);
+            if (['run','log','settings'].includes(v)) return v;
         } catch {}
         return 'run';
+    }
+    function saveHidden(h) { try { localStorage.setItem(HIDE_KEY, h ? '1' : '0'); } catch {} }
+    function loadHidden() {
+        try { return localStorage.getItem(HIDE_KEY) === '1'; } catch {}
+        return false;
     }
 
     loadConfig();
@@ -122,6 +106,8 @@
         isRunning: false,
         accounts: [],
         totalCreated: 0,
+        successCount: 0,
+        failCount: 0,
         email: '',
         username: '',
         otpCode: '',
@@ -136,24 +122,26 @@
         otpAttempts: 0,
         formFilled: false,
         userAgentIndex: 0,
-        uiMode: loadUIMode(),
-        uiMini: loadUIMini(),
-        activeTab: loadUITab(),
+        view: loadView(),
+        hidden: loadHidden(),
         logs: [],
         _shouldAutoResume: false,
-        accent: '#00C8FF',
         _dragging: false
     };
 
     const THEME = {
-        primary: '#00C8FF',
-        success: '#00E676',
-        warning: '#FFD700',
-        error: '#FF5252',
-        muted: '#888888',
-        bg: 'rgba(8,8,12,.92)',
-        bgLight: 'rgba(20,20,26,.95)',
-        border: 'rgba(0,200,255,.25)'
+        text:    '#ffffff',
+        textDim: '#b8b8b8',
+        textMut: '#707070',
+        success: '#4ADE80',
+        warning: '#FBBF24',
+        error:   '#F87171',
+        primary: '#ffffff',
+        bg:      'rgba(10,10,12,.85)',
+        bgPanel: 'rgba(0,0,0,.35)',
+        bgInput: 'rgba(255,255,255,.06)',
+        border:  'rgba(255,255,255,.12)',
+        borderHi:'rgba(255,255,255,.25)'
     };
 
     const USER_AGENTS = [
@@ -180,7 +168,6 @@
     });
     async function waitStep(ms, label) {
         if (state.stopRequested) throw new Error('STOPPED');
-        if (label) addLog('⏳', `Chờ ${(ms/1000).toFixed(1)}s ${label}`);
         await randomSleep(ms);
     }
     function rotateUserAgent() { return USER_AGENTS[state.userAgentIndex++ % USER_AGENTS.length]; }
@@ -190,7 +177,7 @@
     // ================================================================
     function clearAllBrowserData() {
         try {
-            const keep = [CONFIG_KEY, POS_KEY, MODE_KEY, MINI_KEY, TAB_KEY];
+            const keep = [CONFIG_KEY, POS_KEY, VIEW_KEY, HIDE_KEY];
             const backup = {};
             for (const k of keep) {
                 const v = localStorage.getItem(k);
@@ -239,8 +226,7 @@
     }
     async function generateEmail() {
         state.email = generateEmailUsername() + CONFIG.domains[0];
-        renderStatus('📧 ' + state.email, THEME.primary);
-        addLog('📧', `Email: ${state.email}`);
+        renderStatus('📧 ' + state.email, THEME.text);
         return state.email;
     }
 
@@ -290,7 +276,7 @@
                         state.otpCode = otp;
                         state.otpFound = true;
                         renderStatus('🎯 OTP: ' + otp, THEME.success);
-                        addLog('🎯', `OTP: ${otp}`);
+                        addLog('🎯', `Nhận OTP: ${otp}`);
                         toast('🎯 Nhận được OTP: ' + otp, 'success');
                         state.checkingMail = false;
                         clearInterval(state.mailCheckTimer);
@@ -307,7 +293,7 @@
     function startAutoCheckMail() {
         clearInterval(state.mailCheckTimer);
         state.otpFound = false; state.otpCode = ''; state.otpAttempts = 0;
-        renderStatus('📡 Đang check mail...', THEME.primary);
+        renderStatus('📡 Đang check mail...', THEME.text);
         checkMailbox();
         state.mailCheckTimer = setInterval(() => {
             if (state.stopRequested) { clearInterval(state.mailCheckTimer); state.mailCheckTimer = null; return; }
@@ -361,7 +347,6 @@
             try {
                 best.click();
                 renderStatus('📱 Đã gửi yêu cầu OTP', THEME.success);
-                addLog('✓', 'Đã click Get Code');
                 startAutoCheckMail();
                 return true;
             } catch {}
@@ -416,7 +401,6 @@
             state.formFilled = true;
             renderProgress(50, 'Đã điền form');
             renderStatus('✅ Form đã điền', THEME.success);
-            addLog('✓', 'Đã điền form');
             state.isProcessing = false;
             return true;
         } catch (e) {
@@ -440,7 +424,6 @@
                 setInputValue(i, otp);
                 renderStatus('✅ Đã điền OTP', THEME.success);
                 renderProgress(90, '✅ OTP đã điền');
-                addLog('✓', `Đã điền OTP: ${otp}`);
                 await randomSleep(CONFIG.delayBeforeSubmit);
                 await clickSubmit();
                 return true;
@@ -472,7 +455,6 @@
                 s.click();
                 renderStatus('✅ Đã gửi đăng ký!', THEME.success);
                 renderProgress(100, '✅ Hoàn tất!');
-                addLog('✓', 'Đã submit đăng ký');
                 return true;
             }
             for (const f of document.querySelectorAll('form')) { try { f.submit(); return true; } catch {} }
@@ -513,7 +495,7 @@
                 return;
             }
             renderStatus('❌ Không nhận được OTP', THEME.error);
-            addLog('!', 'Không nhận được OTP');
+            addLog('❌', 'Không nhận được OTP — thử lại');
             state.isGettingOTP = false;
         } catch (e) {
             state.isGettingOTP = false;
@@ -528,7 +510,6 @@
         if (state.reloadPending) return;
         state.reloadPending = true;
         renderStatus('🔄 Reloading...', THEME.warning);
-        addLog('↻', 'Reload để chạy acc tiếp theo...');
         saveConfig();
         persistCurrentPosition();
 
@@ -537,6 +518,8 @@
             shouldAutoResume: !state.stopRequested,
             accounts: state.accounts,
             totalCreated: state.totalCreated,
+            successCount: state.successCount,
+            failCount: state.failCount,
             targetAccounts: state.targetAccounts,
             timestamp: Date.now()
         }));
@@ -551,11 +534,10 @@
                 localStorage.removeItem('kuandev_reload_data');
                 state.accounts = d.accounts || [];
                 state.totalCreated = d.totalCreated || 0;
+                state.successCount = d.successCount || state.totalCreated;
+                state.failCount = d.failCount || 0;
                 state.targetAccounts = CONFIG.maxAccounts;
                 state._shouldAutoResume = !!d.shouldAutoResume;
-
-                const targetEl = document.getElementById('kuan-target');
-                if (targetEl) targetEl.textContent = CONFIG.maxAccounts;
                 return true;
             }
         } catch {}
@@ -564,7 +546,7 @@
 
     function persistCurrentPosition() {
         const ui = $('kuandev-ui');
-        if (!ui) return;
+        if (!ui || ui.style.display === 'none') return;
         const r = ui.getBoundingClientRect();
         saveUIPosition(r.left, r.top);
     }
@@ -580,7 +562,7 @@
         const content = state.accounts.map((a, i) =>
             `[${i+1}] Username: ${a.username}\n    Email: ${a.email}\n    Password: ${a.password}\n    OTP: ${a.otp || 'N/A'}\n    Created: ${a.created}\n`
         ).join('\n');
-        const blob = new Blob([`=== KuanDev Smart v3.3 ===\nNgày: ${new Date().toLocaleString('vi-VN')}\nTổng: ${state.accounts.length}\n${'='.repeat(50)}\n\n${content}`],
+        const blob = new Blob([`=== KuanDev Smart v3.8 ===\nNgày: ${new Date().toLocaleString('vi-VN')}\nTổng: ${state.accounts.length}\nThành công: ${state.successCount} | Lỗi: ${state.failCount}\n${'='.repeat(50)}\n\n${content}`],
             { type: 'text/plain;charset=utf-8' });
         const a = document.createElement('a');
         a.href = URL.createObjectURL(blob);
@@ -608,18 +590,24 @@
         state.stopRequested = false;
         state.reloadPending = false;
         state.totalCreated = state.accounts.length;
-        state.accent = THEME.primary;
+        state.successCount = state.accounts.length;
+        state.failCount = 0;
 
-        renderStatus('🚀 Đang chạy...', THEME.primary);
+        renderStatus('🚀 Đang chạy...', THEME.text);
         renderProgress(0, 'Bắt đầu...');
-        addLog('→', `Bắt đầu xử lý (target: ${state.targetAccounts})`);
+        addLog('🚀', `Bắt đầu — mục tiêu ${state.targetAccounts} acc`);
         updateButtons();
-        applyAccent();
+        updateStats();
+
+        switchView('log');
 
         while (state.totalCreated < state.targetAccounts && !state.stopRequested) {
             try {
                 if (state.stopRequested) throw new Error('STOPPED');
                 if (checkForBan()) {
+                    addLog('⚠️', 'Phát hiện dấu hiệu ban — xóa dữ liệu & reload');
+                    state.failCount++;
+                    updateStats();
                     clearAllBrowserData();
                     await waitStep(2000, 'tránh ban');
                     autoReload();
@@ -634,7 +622,13 @@
                 await waitStep(CONFIG.delayBetweenSteps, 'giữa các bước');
                 if (state.stopRequested) throw new Error('STOPPED');
 
-                if (!await bypassForm()) { await randomSleep(2000); continue; }
+                if (!await bypassForm()) {
+                    state.failCount++;
+                    updateStats();
+                    addLog('❌', `Lỗi điền form — bỏ qua #${cur}`);
+                    await randomSleep(2000);
+                    continue;
+                }
                 if (state.stopRequested) throw new Error('STOPPED');
 
                 await waitStep(CONFIG.delayBetweenSteps, 'trước khi lấy OTP');
@@ -650,23 +644,34 @@
                         created: new Date().toLocaleString('vi-VN')
                     });
                     state.totalCreated++;
+                    state.successCount++;
                     renderStatus(`✅ #${state.totalCreated} thành công`, THEME.success);
-                    addLog('✓', `Tạo thành công #${state.totalCreated}`);
+                    addLog('✅', `Tạo thành công acc #${state.totalCreated} / ${state.targetAccounts}`);
                     toast(`✅ Tạo thành công acc #${state.totalCreated}`, 'success');
                     updateAccountsCount();
+                    updateStats();
                     await waitStep(CONFIG.delayAfterReload, 'trước khi reload');
                     if (state.stopRequested) throw new Error('STOPPED');
                     clearAllBrowserData();
                     rotateUserAgent();
-                    if (state.totalCreated < state.targetAccounts) { autoReload(); return; }
+                    if (state.totalCreated < state.targetAccounts) {
+                        addLog('🔄', 'Reload để chạy acc tiếp theo...');
+                        autoReload();
+                        return;
+                    }
                 } else {
                     stopAutoCheckMail();
+                    state.failCount++;
+                    updateStats();
                     await randomSleep(1500);
                     state.otpFound = false; state.otpCode = '';
                 }
             } catch (e) {
                 stopAutoCheckMail();
                 if (e.message === 'STOPPED') break;
+                state.failCount++;
+                updateStats();
+                addLog('⚠️', 'Lỗi bước — thử lại');
                 await randomSleep(2000);
             }
         }
@@ -674,15 +679,13 @@
         if (state.totalCreated >= state.targetAccounts || state.stopRequested) {
             renderStatus(`✅ Hoàn tất ${state.totalCreated} acc`, THEME.success);
             renderProgress(100, `✅ ${state.totalCreated} acc`);
-            addLog('✓', `Hoàn tất ${state.totalCreated} tài khoản`);
+            addLog('🎉', `Hoàn tất — ${state.successCount} thành công / ${state.failCount} lỗi`);
             stopAutoCheckMail();
             clearAllBrowserData();
             if (state.accounts.length) downloadAccounts();
             if (state.totalCreated >= state.targetAccounts) toast('🎉 Hoàn tất mục tiêu!', 'success');
         }
         state.isRunning = false;
-        state.accent = state.stopRequested ? THEME.error : THEME.success;
-        applyAccent();
         updateButtons();
     }
 
@@ -696,33 +699,32 @@
             if (d) { d.shouldAutoResume = false; localStorage.setItem('kuandev_reload_data', JSON.stringify(d)); }
         } catch {}
         renderStatus('⏹ Đã dừng', THEME.error);
-        addLog('!', 'Người dùng đã dừng');
+        addLog('⏹', 'Người dùng đã dừng tool');
         toast('⏹ Đã dừng tool', 'error');
         updateButtons();
-        state.accent = THEME.error;
-        applyAccent();
+        switchView('run');
     }
 
     // ================================================================
-    //  TOAST  —  bên phải, cách ĐÁY màn hình 65% chiều cao
+    //  TOAST
     // ================================================================
     function toast(msg, type = 'info') {
-        const colors = { success: THEME.success, error: THEME.error, info: THEME.primary, warn: THEME.warning };
+        const colors = { success: THEME.success, error: THEME.error, info: THEME.text, warn: THEME.warning };
         const el = document.createElement('div');
         el.style.cssText = `
             position:fixed;
             bottom:65vh;
             right:20px;
             transform:translateX(30px);
-            background:${THEME.bgLight};
+            background:rgba(10,10,12,.94);
             border:1px solid ${colors[type]};
             color:${colors[type]};
             padding:8px 16px;
-            border-radius:6px;
+            border-radius:8px;
             font-family:'Consolas',monospace;
             font-size:12px;
             z-index:9999999;
-            box-shadow:0 8px 24px rgba(0,0,0,.5);
+            box-shadow:0 8px 24px rgba(0,0,0,.6);
             opacity:0;
             transition:opacity .25s, transform .25s;
             pointer-events:none;
@@ -743,8 +745,55 @@
     }
 
     // ================================================================
+    //  ICON TOGGLE
+    // ================================================================
+    function createToggleIcon() {
+        $('kuandev-toggle')?.remove();
+        const btn = document.createElement('div');
+        btn.id = 'kuandev-toggle';
+        btn.title = 'Bật / Tắt menu KuanDev';
+        btn.textContent = '🛠';
+        btn.style.cssText = `
+            position:fixed; bottom:12px; right:12px; z-index:9999998;
+            width:26px; height:26px;
+            background:rgba(10,10,12,.88);
+            border:1px solid rgba(255,255,255,.18);
+            border-radius:5px;
+            display:flex;align-items:center;justify-content:center;
+            font-size:13px; cursor:pointer;
+            box-shadow:0 3px 10px rgba(0,0,0,.5);
+            transition:transform .15s, background .15s;
+            user-select:none;
+            line-height:1;
+        `;
+        btn.addEventListener('mouseenter', () => {
+            btn.style.transform = 'scale(1.08)';
+            btn.style.background = 'rgba(35,35,42,.95)';
+        });
+        btn.addEventListener('mouseleave', () => {
+            btn.style.transform = 'scale(1)';
+            btn.style.background = 'rgba(10,10,12,.88)';
+        });
+        btn.addEventListener('click', () => {
+            state.hidden = !state.hidden;
+            saveHidden(state.hidden);
+            applyVisibility();
+            toast(state.hidden ? '👁 Đã ẩn menu' : '👁 Đã hiện menu', 'info');
+        });
+        document.body.appendChild(btn);
+    }
+
+    function applyVisibility() {
+        const ui = $('kuandev-ui');
+        if (!ui) return;
+        ui.style.display = state.hidden ? 'none' : '';
+    }
+
+    // ================================================================
     //  UI
     // ================================================================
+    const CONTENT_HEIGHT = 310;
+
     function createUI() {
         $('kuandev-ui')?.remove();
 
@@ -754,144 +803,163 @@
             position:fixed; top:12px; right:12px; z-index:999999;
             font-family:'Consolas','Segoe UI',monospace; user-select:none;
             font-size:11px; line-height:1.5;
+            touch-action:none;
+            overscroll-behavior:contain;
         `;
 
         c.innerHTML = `
         <div id="kuan-box" style="
-            background:linear-gradient(180deg,rgba(8,8,12,.92),rgba(3,3,6,.95));
-            backdrop-filter:blur(14px);
+            background:${THEME.bg};
+            backdrop-filter:blur(18px) saturate(1.2);
             border:1px solid ${THEME.border};
-            border-radius:10px;
-            box-shadow:0 12px 40px rgba(0,0,0,.6), 0 0 0 1px rgba(0,200,255,.08) inset;
-            color:#e8e8e8; box-sizing:border-box;
-            width:220px; overflow:hidden;
-            transition:width .25s ease;
+            border-radius:12px;
+            box-shadow:0 12px 40px rgba(0,0,0,.7), 0 0 0 1px rgba(255,255,255,.04) inset;
+            color:${THEME.text}; box-sizing:border-box;
+            width:240px; overflow:hidden;
         ">
             <!-- HEADER -->
             <div id="kuan-header" style="
                 display:flex; align-items:center; justify-content:space-between;
-                padding:6px 10px;
-                background:linear-gradient(90deg, rgba(0,200,255,.08), transparent);
+                padding:8px 10px;
                 border-bottom:1px solid ${THEME.border};
                 cursor:move;
+                touch-action:none;
             ">
-                <div style="display:flex;align-items:center;gap:6px;">
+                <div style="display:flex;align-items:center;gap:7px;">
                     <span id="kuan-dot" style="color:${THEME.success};font-size:10px;">●</span>
-                    <span style="font-weight:bold;color:${THEME.primary};letter-spacing:.5px;">KUANDEV</span>
-                    <span style="color:#666;font-size:9px;">v3.3</span>
+                    <span style="font-weight:bold;color:${THEME.text};letter-spacing:.6px;">KUANDEV</span>
+                    <span style="color:${THEME.textMut};font-size:9px;">v3.8</span>
                 </div>
-                <div style="display:flex;align-items:center;gap:4px;">
-                    <button id="kuan-min" title="Thu gọn / Mở rộng" style="
-                        background:transparent;border:none;color:#888;cursor:pointer;
-                        font-size:14px;line-height:1;padding:0 4px;font-family:inherit;
-                    ">−</button>
-                    <button id="kuan-mode" title="Đổi kích thước" style="
-                        background:rgba(0,200,255,.12);border:1px solid ${THEME.border};
-                        color:${THEME.primary};border-radius:4px;cursor:pointer;
-                        font-size:10px;padding:0 6px;font-family:inherit;
-                    ">⇄</button>
-                    <button id="kuan-close" title="Ẩn" style="
-                        background:transparent;border:none;color:#888;cursor:pointer;
-                        font-size:14px;line-height:1;padding:0 4px;font-family:inherit;
+                <div style="display:flex;align-items:center;gap:2px;">
+                    <button id="kuan-settings-btn" title="Cài đặt" style="
+                        background:transparent;border:none;color:${THEME.textDim};cursor:pointer;
+                        font-size:14px;line-height:1;padding:2px 5px;font-family:inherit;
+                        border-radius:4px;transition:background .15s;
+                    ">⚙️</button>
+                    <button id="kuan-close" title="Ẩn menu (dùng icon 🛠 dưới web để mở lại)" style="
+                        background:transparent;border:none;color:${THEME.textDim};cursor:pointer;
+                        font-size:14px;line-height:1;padding:2px 5px;font-family:inherit;
+                        border-radius:4px;transition:background .15s;
                     ">×</button>
                 </div>
             </div>
 
-            <!-- TABS -->
-            <div id="kuan-tabs" style="display:flex;border-bottom:1px solid ${THEME.border};">
-                <button data-tab="run" class="kuan-tab">▶ Chạy</button>
-                <button data-tab="log" class="kuan-tab">Log <span class="kuan-cursor">&gt;_</span></button>
-                <button data-tab="settings" class="kuan-tab">⚙ Cài đặt</button>
-            </div>
+            <!-- CONTENT (chiều cao cố định) -->
+            <div id="kuan-content" style="padding:12px; height:${CONTENT_HEIGHT}px; overflow:hidden;">
 
-            <!-- CONTENT -->
-            <div id="kuan-content" style="padding:10px;">
-
-                <!-- TAB: RUN -->
-                <div data-panel="run">
+                <!-- VIEW: RUN -->
+                <div data-view="run" style="height:100%; display:flex; flex-direction:column;">
                     <div style="
                         display:flex;justify-content:space-between;align-items:center;
-                        background:rgba(0,0,0,.3);border-radius:6px;padding:6px 8px;
+                        background:${THEME.bgPanel};border-radius:8px;padding:7px 9px;
                         margin-bottom:8px;
                     ">
                         <div style="display:flex;align-items:center;gap:6px;min-width:0;flex:1;">
-                            <span style="color:#666;">●</span>
-                            <span id="kuan-status" style="color:${THEME.warning};font-size:11px;
+                            <span style="color:${THEME.textMut};font-size:9px;">●</span>
+                            <span id="kuan-status" style="color:${THEME.text};font-size:11px;
                                 white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">Sẵn sàng</span>
                         </div>
-                        <span id="kuan-progress-text" style="color:${THEME.primary};font-weight:bold;">0%</span>
+                        <span id="kuan-progress-text" style="color:${THEME.text};font-weight:bold;font-size:10px;">0%</span>
                     </div>
 
-                    <div style="height:5px;background:#1a1a20;border-radius:3px;overflow:hidden;margin-bottom:10px;">
+                    <div style="height:5px;background:rgba(255,255,255,.08);border-radius:3px;overflow:hidden;margin-bottom:10px;">
                         <div id="kuan-progress-bar" style="width:0%;height:100%;
-                            background:linear-gradient(90deg,${THEME.primary},${THEME.success});
+                            background:linear-gradient(90deg,#ffffff,#b8b8b8);
                             transition:width .4s ease;"></div>
                     </div>
 
-                    <div id="kuan-info-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:10px;">
-                        <div class="kuan-info-cell">
-                            <div class="kuan-info-label">ĐÃ TẠO</div>
-                            <div id="kuan-accounts-count" class="kuan-info-value" style="color:${THEME.success};">0</div>
+                    <!-- Grid stats: ĐÃ TẠO | MỤC TIÊU -->
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:6px;">
+                        <div class="kuan-cell">
+                            <div class="kuan-label">ĐÃ TẠO</div>
+                            <div id="kuan-accounts-count" class="kuan-value" style="color:${THEME.success};">0</div>
                         </div>
-                        <div class="kuan-info-cell">
-                            <div class="kuan-info-label">MỤC TIÊU</div>
-                            <div id="kuan-target" class="kuan-info-value" style="color:${THEME.warning};">${CONFIG.maxAccounts}</div>
-                        </div>
-                        <div class="kuan-info-cell" style="grid-column:span 2;">
-                            <div class="kuan-info-label">EMAIL HIỆN TẠI</div>
-                            <div id="kuan-email" class="kuan-info-value kuan-copy" style="color:#ddd;font-size:10px;cursor:pointer;" title="Click để copy">—</div>
-                        </div>
-                        <div class="kuan-info-cell" style="grid-column:span 2;">
-                            <div class="kuan-info-label">OTP</div>
-                            <div id="kuan-otp" class="kuan-info-value kuan-copy" style="color:${THEME.success};font-size:14px;letter-spacing:2px;cursor:pointer;" title="Click để copy">—</div>
+                        <div class="kuan-cell">
+                            <div class="kuan-label">MỤC TIÊU</div>
+                            <div id="kuan-target" class="kuan-value" style="color:${THEME.warning};">${CONFIG.maxAccounts}</div>
                         </div>
                     </div>
 
-                    <div style="display:flex;gap:6px;">
+                    <!-- Grid stats: THÀNH CÔNG | LỖI -->
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:6px;">
+                        <div class="kuan-cell">
+                            <div class="kuan-label">✓ THÀNH CÔNG</div>
+                            <div id="kuan-success" class="kuan-value" style="color:${THEME.success};">0</div>
+                        </div>
+                        <div class="kuan-cell">
+                            <div class="kuan-label">✗ LỖI</div>
+                            <div id="kuan-fail" class="kuan-value" style="color:${THEME.error};">0</div>
+                        </div>
+                    </div>
+
+                    <!-- USERNAME -->
+                    <div class="kuan-cell" style="margin-bottom:6px;">
+                        <div class="kuan-label">USERNAME</div>
+                        <div id="kuan-username" class="kuan-value kuan-copy" style="color:${THEME.text};font-size:12px;cursor:pointer;" title="Click để copy">—</div>
+                    </div>
+
+                    <!-- EMAIL -->
+                    <div class="kuan-cell" style="margin-bottom:0;">
+                        <div class="kuan-label">EMAIL</div>
+                        <div id="kuan-email" class="kuan-value kuan-copy" style="color:${THEME.textDim};font-size:10px;cursor:pointer;" title="Click để copy">—</div>
+                    </div>
+
+                    <!-- HÀNG NÚT — cách trên 14px cho thoáng -->
+                    <div style="display:flex;gap:6px;margin-top:auto;padding-top:14px;">
                         <button id="kuan-start" class="kuan-btn kuan-btn-start">▶ BẮT ĐẦU</button>
                         <button id="kuan-stop" class="kuan-btn kuan-btn-stop">■ DỪNG</button>
                         <button id="kuan-download" class="kuan-btn kuan-btn-dl" title="Tải file kết quả">⬇</button>
                     </div>
                 </div>
 
-                <!-- TAB: LOG -->
-                <div data-panel="log" style="display:none;">
+                <!-- VIEW: LOG -->
+                <div data-view="log" style="height:100%; display:none; flex-direction:column;">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+                        <button id="kuan-back-1" class="kuan-back">← Quay lại</button>
+                        <span style="color:${THEME.textMut};font-size:10px;">NHẬT KÝ</span>
+                    </div>
                     <div id="kuan-log" style="
-                        height:200px;overflow-y:auto;padding:4px 6px;
-                        font-size:10px;line-height:1.7;color:#bbb;
-                        background:rgba(0,0,0,.3);border-radius:6px;
+                        flex:1;overflow-y:auto;padding:6px 8px;
+                        font-size:10px;line-height:1.75;color:${THEME.textDim};
+                        background:${THEME.bgPanel};border-radius:8px;
                         scrollbar-width:thin;
                     "></div>
-                    <div style="display:flex;gap:6px;margin-top:6px;">
-                        <button id="kuan-clear-log" class="kuan-btn" style="flex:1;background:rgba(255,82,82,.1);border-color:rgba(255,82,82,.4);color:${THEME.error};">🗑 Xóa log</button>
+                    <div style="display:flex;gap:6px;margin-top:8px;">
+                        <button id="kuan-clear-log" class="kuan-btn" style="flex:1;background:rgba(248,113,113,.1);border-color:rgba(248,113,113,.35);color:${THEME.error};">🗑 Xóa log</button>
                     </div>
                 </div>
 
-                <!-- TAB: SETTINGS -->
-                <div data-panel="settings" style="display:none;">
-                    <div class="kuan-setting">
-                        <label>Mục tiêu (accounts)</label>
-                        <input type="number" id="cfg-target" value="${CONFIG.maxAccounts}" min="1" max="10000">
+                <!-- VIEW: SETTINGS -->
+                <div data-view="settings" style="height:100%; display:none; flex-direction:column;">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+                        <button id="kuan-back-2" class="kuan-back">← Quay lại</button>
+                        <span style="color:${THEME.textMut};font-size:10px;">CÀI ĐẶT</span>
                     </div>
-                    <div class="kuan-setting">
-                        <label>Password</label>
-                        <input type="text" id="cfg-password" value="${CONFIG.password}">
-                    </div>
-                    <div class="kuan-setting">
-                        <label>Delay trước khi điền (ms)</label>
-                        <input type="number" id="cfg-delay-fill" value="${CONFIG.delayBeforeFill}" min="0" max="10000">
-                    </div>
-                    <div class="kuan-setting">
-                        <label>Delay giữa các bước (ms)</label>
-                        <input type="number" id="cfg-delay-step" value="${CONFIG.delayBetweenSteps}" min="0" max="10000">
-                    </div>
-                    <div class="kuan-setting">
-                        <label>Check mail interval (ms)</label>
-                        <input type="number" id="cfg-mail-interval" value="${CONFIG.checkMailInterval}" min="200" max="5000">
+                    <div style="flex:1;overflow-y:auto;">
+                        <div class="kuan-setting">
+                            <label>Mục tiêu (accounts)</label>
+                            <input type="number" id="cfg-target" value="${CONFIG.maxAccounts}" min="1" max="10000">
+                        </div>
+                        <div class="kuan-setting">
+                            <label>Password</label>
+                            <input type="text" id="cfg-password" value="${CONFIG.password}">
+                        </div>
+                        <div class="kuan-setting">
+                            <label>Delay trước khi điền</label>
+                            <input type="number" id="cfg-delay-fill" value="${CONFIG.delayBeforeFill}" min="0" max="10000">
+                        </div>
+                        <div class="kuan-setting">
+                            <label>Delay giữa các bước</label>
+                            <input type="number" id="cfg-delay-step" value="${CONFIG.delayBetweenSteps}" min="0" max="10000">
+                        </div>
+                        <div class="kuan-setting">
+                            <label>Check mail interval</label>
+                            <input type="number" id="cfg-mail-interval" value="${CONFIG.checkMailInterval}" min="200" max="5000">
+                        </div>
                     </div>
                     <div style="display:flex;gap:6px;margin-top:8px;">
                         <button id="cfg-save" class="kuan-btn kuan-btn-start" style="flex:2;">💾 LƯU</button>
-                        <button id="cfg-reset" class="kuan-btn" style="flex:1;background:rgba(255,82,82,.1);border-color:rgba(255,82,82,.4);color:${THEME.error};">↺ Reset</button>
+                        <button id="cfg-reset" class="kuan-btn" style="flex:1;background:rgba(248,113,113,.1);border-color:rgba(248,113,113,.35);color:${THEME.error};">↺ Reset</button>
                     </div>
                 </div>
             </div>
@@ -899,113 +967,90 @@
             <!-- FOOTER -->
             <div id="kuan-footer" style="
                 display:flex;justify-content:space-between;align-items:center;
-                padding:4px 10px;border-top:1px solid ${THEME.border};
-                font-size:9px;color:#666;
+                padding:5px 12px;border-top:1px solid ${THEME.border};
+                font-size:9px;color:${THEME.textMut};
             ">
                 <span><span id="kuan-status-dot" style="color:${THEME.success};">●</span> READY</span>
-                <span>RUN: <b id="kuan-run-count" style="color:${THEME.primary};">0</b></span>
+                <span>RUN: <b id="kuan-run-count" style="color:${THEME.text};">0</b></span>
             </div>
         </div>`;
 
         document.body.appendChild(c);
 
-        // inject styles
         const style = document.createElement('style');
         style.textContent = `
-            .kuan-tab {
-                flex:1;background:transparent;border:none;color:#888;
-                padding:6px 8px;font-family:inherit;font-size:11px;
-                cursor:pointer;border-bottom:2px solid transparent;
-                transition:all .2s;
+            #kuandev-ui * { box-sizing: border-box; }
+            .kuan-cell {
+                background:${THEME.bgPanel};border-radius:8px;padding:6px 9px;
             }
-            .kuan-tab:hover { color:${THEME.primary}; background:rgba(0,200,255,.05); }
-            .kuan-tab.active { color:${THEME.primary}; border-bottom-color:${THEME.primary}; background:rgba(0,200,255,.08); }
-            .kuan-info-cell {
-                background:rgba(0,0,0,.3);border-radius:6px;padding:5px 8px;
-            }
-            .kuan-info-label { color:#666;font-size:9px;letter-spacing:.5px; }
-            .kuan-info-value { font-weight:bold;font-size:12px;margin-top:1px;
+            .kuan-label { color:${THEME.textMut};font-size:9px;letter-spacing:.6px; }
+            .kuan-value { font-weight:bold;font-size:12px;margin-top:2px;
                 white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
-            .kuan-copy:hover { color:${THEME.primary} !important; }
+            .kuan-copy:hover { color:${THEME.text} !important; }
             .kuan-btn {
-                flex:1;padding:6px 8px;border-radius:6px;cursor:pointer;
+                flex:1;padding:7px 8px;border-radius:8px;cursor:pointer;
                 font-family:inherit;font-size:11px;font-weight:bold;
-                transition:all .2s;
+                transition:all .15s;
             }
-            .kuan-btn:hover:not(:disabled) { filter:brightness(1.3); transform:translateY(-1px); }
-            .kuan-btn:active:not(:disabled) { transform:translateY(0); }
-            .kuan-btn:disabled { opacity:.4;cursor:not-allowed; }
-            .kuan-btn-start { background:rgba(0,230,118,.15);border:1px solid rgba(0,230,118,.5);color:${THEME.success}; }
-            .kuan-btn-stop  { background:rgba(255,82,82,.15);border:1px solid rgba(255,82,82,.5);color:${THEME.error}; }
-            .kuan-btn-dl    { background:rgba(0,200,255,.15);border:1px solid ${THEME.border};color:${THEME.primary};flex:0 0 36px; }
+            .kuan-btn:hover:not(:disabled) { filter:brightness(1.35); }
+            .kuan-btn:active:not(:disabled) { transform:translateY(1px); }
+            .kuan-btn:disabled { opacity:.35;cursor:not-allowed; }
+            .kuan-btn-start { background:rgba(74,222,128,.12);border:1px solid rgba(74,222,128,.45);color:${THEME.success}; }
+            .kuan-btn-stop  { background:rgba(248,113,113,.12);border:1px solid rgba(248,113,113,.45);color:${THEME.error}; }
+            .kuan-btn-dl    { background:rgba(255,255,255,.06);border:1px solid ${THEME.border};color:${THEME.text};flex:0 0 38px; }
+            .kuan-back {
+                background:transparent;border:1px solid ${THEME.border};
+                color:${THEME.textDim};border-radius:6px;cursor:pointer;
+                font-family:inherit;font-size:10px;padding:3px 8px;
+                transition:all .15s;
+            }
+            .kuan-back:hover { color:${THEME.text}; border-color:${THEME.borderHi}; }
             .kuan-setting {
                 display:flex;justify-content:space-between;align-items:center;
-                padding:4px 0;border-bottom:1px dashed rgba(255,255,255,.05);
+                padding:5px 0;border-bottom:1px dashed rgba(255,255,255,.06);
             }
-            .kuan-setting label { color:#aaa;font-size:10px; }
+            .kuan-setting label { color:${THEME.textDim};font-size:10px; }
             .kuan-setting input {
-                background:rgba(0,0,0,.4);border:1px solid ${THEME.border};
-                color:#ddd;border-radius:4px;padding:3px 6px;
+                background:${THEME.bgInput};border:1px solid ${THEME.border};
+                color:${THEME.text};border-radius:6px;padding:4px 7px;
                 font-family:inherit;font-size:10px;width:110px;outline:none;
+                transition:border-color .15s;
             }
-            .kuan-setting input:focus { border-color:${THEME.primary}; }
+            .kuan-setting input:focus { border-color:${THEME.borderHi}; }
             #kuan-log::-webkit-scrollbar { width:4px; }
-            #kuan-log::-webkit-scrollbar-thumb { background:${THEME.primary};border-radius:2px; }
+            #kuan-log::-webkit-scrollbar-thumb { background:rgba(255,255,255,.2);border-radius:2px; }
             #kuan-log::-webkit-scrollbar-track { background:transparent; }
-            @keyframes kuan-blink {
-                0%, 50% { opacity: 1; }
-                51%, 100% { opacity: 0; }
-            }
-            .kuan-cursor {
-                animation: kuan-blink 1s infinite;
-                color: #00E676;
-                font-weight: bold;
-            }
+            #kuan-header button:hover { background:rgba(255,255,255,.08) !important; }
             #kuan-header { cursor: move; }
             #kuan-header:active { cursor: grabbing; }
-
-            /* === COMPACT === */
-            #kuandev-ui.kuan-compact #kuan-box { width: 220px; }
-            #kuandev-ui.kuan-compact .kuan-tab { font-size: 10px; padding: 5px 4px; }
-            #kuandev-ui.kuan-compact #kuan-content { padding: 8px; }
-            #kuandev-ui.kuan-compact .kuan-info-value { font-size: 11px; }
-            #kuandev-ui.kuan-compact .kuan-btn { font-size: 10px; padding: 5px 4px; }
-            #kuandev-ui.kuan-compact .kuan-setting input { width: 90px; }
-            #kuandev-ui.kuan-compact #kuan-email,
-            #kuandev-ui.kuan-compact #kuan-otp { font-size: 10px !important; }
-
-            /* === FULL === */
-            #kuandev-ui.kuan-full #kuan-box { width: 340px; }
         `;
         document.head.appendChild(style);
 
-        // EVENTS
+        // ============ EVENTS ============
         $('kuan-start').addEventListener('click', () => {
             if (state.isRunning) return;
-            addLog('▶', 'Người dùng bấm BẮT ĐẦU');
             startProcess();
         });
         $('kuan-stop').addEventListener('click', stopProcess);
         $('kuan-download').addEventListener('click', downloadAccounts);
-        $('kuan-mode').addEventListener('click', toggleUIMode);
-        $('kuan-min').addEventListener('click', () => toggleMini());
+
+        $('kuan-settings-btn').addEventListener('click', () => switchView('settings'));
+        $('kuan-back-1').addEventListener('click', () => switchView('run'));
+        $('kuan-back-2').addEventListener('click', () => switchView('run'));
+
         $('kuan-close').addEventListener('click', () => {
-            $('kuandev-ui').style.display = 'none';
-            setTimeout(() => {
-                if (confirm('Hiện lại KuanDev UI?')) $('kuandev-ui').style.display = '';
-            }, 500);
+            state.hidden = true;
+            saveHidden(true);
+            applyVisibility();
+            toast('👁 Đã ẩn — bấm 🛠 để mở lại', 'info');
         });
 
-        document.querySelectorAll('.kuan-tab').forEach(t => {
-            t.addEventListener('click', () => switchTab(t.dataset.tab));
-        });
         $('kuan-clear-log').addEventListener('click', () => {
             state.logs = [];
             renderLogs();
         });
 
-        // copy on click
-        ['kuan-email', 'kuan-otp'].forEach(id => {
+        ['kuan-username', 'kuan-email'].forEach(id => {
             $(id).addEventListener('click', () => {
                 const v = $(id).textContent.trim();
                 if (v && v !== '—') {
@@ -1014,7 +1059,6 @@
             });
         });
 
-        // SAVE SETTINGS
         $('cfg-save').addEventListener('click', () => {
             const newTarget = Math.min(10000, Math.max(1, +$('cfg-target').value || 10));
             CONFIG.maxAccounts = newTarget;
@@ -1024,21 +1068,18 @@
             CONFIG.checkMailInterval = Math.max(200, +$('cfg-mail-interval').value || 800);
 
             state.targetAccounts = newTarget;
-
             $('kuan-target').textContent = newTarget;
             $('cfg-target').value = newTarget;
 
             const ok = saveConfig();
-            addLog('💾', `Đã lưu: target=${newTarget}, delay=${CONFIG.delayBeforeFill}ms`);
             toast(ok ? `💾 Đã lưu (target: ${newTarget})` : '⚠ Lưu thất bại', ok ? 'success' : 'error');
         });
 
-        // RESET SETTINGS
         $('cfg-reset').addEventListener('click', () => {
             if (!confirm('Khôi phục cài đặt mặc định?')) return;
             localStorage.removeItem(CONFIG_KEY);
             CONFIG.maxAccounts = 10;
-            CONFIG.password = 'Quang1822012@#';
+            CONFIG.password = 'KuanDev182@#';
             CONFIG.delayBeforeFill = 1200;
             CONFIG.delayBetweenSteps = 900;
             CONFIG.checkMailInterval = 800;
@@ -1051,30 +1092,28 @@
             $('cfg-delay-step').value = CONFIG.delayBetweenSteps;
             $('cfg-mail-interval').value = CONFIG.checkMailInterval;
 
-            addLog('↺', 'Đã khôi phục cài đặt mặc định');
             toast('↺ Đã khôi phục mặc định', 'info');
         });
 
-        // drag header
         makeDraggable(c, $('kuan-header'));
 
-        applyUIMode();
-        applyMiniState();
-        switchTab(state.activeTab || 'run');
+        switchView(state.view || 'run');
         updateButtons();
         updateAccountsCount();
-        applyAccent();
+        updateStats();
         return c;
     }
 
-    function switchTab(name) {
-        state.activeTab = name;
-        saveUITab(name);
-        document.querySelectorAll('.kuan-tab').forEach(t => {
-            t.classList.toggle('active', t.dataset.tab === name);
-        });
-        document.querySelectorAll('#kuan-content [data-panel]').forEach(p => {
-            p.style.display = p.dataset.panel === name ? '' : 'none';
+    // ================================================================
+    //  VIEW SWITCHER
+    // ================================================================
+    function switchView(name) {
+        state.view = name;
+        saveView(name);
+
+        document.querySelectorAll('#kuan-content [data-view]').forEach(v => {
+            const show = v.dataset.view === name;
+            v.style.display = show ? 'flex' : 'none';
         });
 
         if (name === 'settings') {
@@ -1085,56 +1124,17 @@
             if (el('cfg-delay-step'))     el('cfg-delay-step').value     = CONFIG.delayBetweenSteps;
             if (el('cfg-mail-interval'))  el('cfg-mail-interval').value  = CONFIG.checkMailInterval;
         }
+        if (name === 'log') renderLogs();
     }
 
-    function toggleUIMode() {
-        const modes = ['compact', 'full'];
-        state.uiMode = modes[(modes.indexOf(state.uiMode) + 1) % modes.length];
-        saveUIMode(state.uiMode);
-        applyUIMode();
-        toast(state.uiMode === 'full' ? '🔎 Mở rộng menu' : '🔍 Thu nhỏ menu', 'info');
-    }
-
-    function applyUIMode() {
-        const ui = $('kuandev-ui');
-        const box = $('kuan-box');
-        if (!ui || !box) return;
-
-        ui.classList.toggle('kuan-compact', state.uiMode === 'compact');
-        ui.classList.toggle('kuan-full', state.uiMode === 'full');
-        box.style.width = state.uiMode === 'compact' ? '220px' : '340px';
-    }
-
-    function applyMiniState() {
-        const box = $('kuan-box');
-        const content = $('kuan-content');
-        const tabs = $('kuan-tabs');
-        const footer = $('kuan-footer');
-        if (!box || !content || !tabs || !footer) return;
-
-        if (state.uiMini) {
-            content.style.display = 'none';
-            tabs.style.display = 'none';
-            footer.style.display = 'none';
-            box.dataset.mini = '1';
-        } else {
-            content.style.display = '';
-            tabs.style.display = 'flex';
-            footer.style.display = 'flex';
-            box.dataset.mini = '0';
-        }
-    }
-
-    function toggleMini() {
-        state.uiMini = !state.uiMini;
-        saveUIMini(state.uiMini);
-        applyMiniState();
-    }
-
+    // ================================================================
+    //  DRAG  —  FIX LỖI KÉO XUỐNG DƯỚI BỊ RELOAD TRANG
+    // ================================================================
     function makeDraggable(container, handle) {
         let ox = 0, oy = 0, sx = 0, sy = 0, dragging = false;
 
-        const startDrag = (clientX, clientY) => {
+        const startDrag = (clientX, clientY, ev) => {
+            if (ev && ev.cancelable) ev.preventDefault();
             const r = container.getBoundingClientRect();
             container.style.right = 'auto';
             container.style.bottom = 'auto';
@@ -1144,10 +1144,13 @@
             dragging = true;
             state._dragging = true;
             document.body.style.userSelect = 'none';
+            document.body.style.overscrollBehavior = 'none';
+            document.documentElement.style.overscrollBehavior = 'none';
         };
 
-        const moveDrag = (clientX, clientY) => {
+        const moveDrag = (clientX, clientY, ev) => {
             if (!dragging) return;
+            if (ev && ev.cancelable) ev.preventDefault();
             let nx = ox + clientX - sx;
             let ny = oy + clientY - sy;
             const maxX = window.innerWidth - container.offsetWidth;
@@ -1163,29 +1166,39 @@
             dragging = false;
             state._dragging = false;
             document.body.style.userSelect = '';
+            document.body.style.overscrollBehavior = '';
+            document.documentElement.style.overscrollBehavior = '';
             const r = container.getBoundingClientRect();
             saveUIPosition(r.left, r.top);
         };
 
+        // --- MOUSE ---
         handle.addEventListener('mousedown', e => {
             if (e.target.tagName === 'BUTTON') return;
             e.preventDefault();
-            startDrag(e.clientX, e.clientY);
+            startDrag(e.clientX, e.clientY, e);
         });
-        document.addEventListener('mousemove', e => moveDrag(e.clientX, e.clientY));
+        document.addEventListener('mousemove', e => moveDrag(e.clientX, e.clientY, e));
         document.addEventListener('mouseup', endDrag);
 
+        // --- TOUCH (chặn scroll/reload) ---
         handle.addEventListener('touchstart', e => {
             if (e.target.tagName === 'BUTTON') return;
             const t = e.touches[0];
-            startDrag(t.clientX, t.clientY);
-        }, { passive: true });
+            startDrag(t.clientX, t.clientY, e);
+        }, { passive: false });
+
         document.addEventListener('touchmove', e => {
             if (!dragging) return;
+            e.preventDefault();
             const t = e.touches[0];
-            moveDrag(t.clientX, t.clientY);
-        }, { passive: true });
+            moveDrag(t.clientX, t.clientY, e);
+        }, { passive: false });
+
         document.addEventListener('touchend', endDrag);
+        document.addEventListener('touchcancel', endDrag);
+
+        handle.addEventListener('contextmenu', e => e.preventDefault());
     }
 
     function restoreUIPosition() {
@@ -1203,11 +1216,9 @@
         ui.style.top = top + 'px';
     }
 
-    function applyAccent() {
-        const dot = $('kuan-dot');
-        if (dot) dot.style.color = state.accent;
-    }
-
+    // ================================================================
+    //  RENDER HELPERS
+    // ================================================================
     function updateButtons() {
         const s = $('kuan-start'), st = $('kuan-stop');
         if (!s || !st) return;
@@ -1224,12 +1235,19 @@
         if (r) r.textContent = state.totalCreated;
     }
 
+    function updateStats() {
+        const sc = $('kuan-success');
+        const fc = $('kuan-fail');
+        if (sc) sc.textContent = state.successCount;
+        if (fc) fc.textContent = state.failCount;
+    }
+
     function renderStatus(msg, color) {
         const el = $('kuan-status');
         const text = String(msg).replace(/^[^\p{L}\p{N}]*/u, '').trim();
-        if (el) { el.textContent = text || 'Sẵn sàng'; el.style.color = color || THEME.warning; }
+        if (el) { el.textContent = text || 'Sẵn sàng'; el.style.color = color || THEME.text; }
         updateEmailDisplay();
-        updateOtpDisplay();
+        updateUsernameDisplay();
     }
 
     function renderProgress(p, t = '') {
@@ -1241,8 +1259,8 @@
 
     function addLog(icon, msg) {
         const time = new Date().toLocaleTimeString('vi-VN', { hour12: false });
-        state.logs.unshift(`<span style="color:#555">${time}</span>  ${icon}  ${msg}`);
-        if (state.logs.length > 50) state.logs.pop();
+        state.logs.unshift(`<span style="color:${THEME.textMut}">${time}</span>  <b style="color:${THEME.text}">${icon}</b>  ${msg}`);
+        if (state.logs.length > 80) state.logs.pop();
         renderLogs();
     }
 
@@ -1256,9 +1274,9 @@
         if (el) el.textContent = state.email || '—';
     }
 
-    function updateOtpDisplay() {
-        const el = $('kuan-otp');
-        if (el) el.textContent = state.otpCode || '—';
+    function updateUsernameDisplay() {
+        const el = $('kuan-username');
+        if (el) el.textContent = state.username || '—';
     }
 
     // ================================================================
@@ -1268,7 +1286,9 @@
 
     function initUI() {
         createUI();
+        createToggleIcon();
         restoreUIPosition();
+        applyVisibility();
 
         state.targetAccounts = CONFIG.maxAccounts;
         const targetEl = document.getElementById('kuan-target');
@@ -1278,7 +1298,8 @@
 
         if (restored) {
             updateAccountsCount();
-            addLog('↻', `Đã khôi phục ${state.totalCreated} acc / target ${state.targetAccounts}`);
+            updateStats();
+            addLog('↻', `Khôi phục — ${state.totalCreated}/${state.targetAccounts} acc`);
             renderStatus('🟡 Sẵn sàng (khôi phục)', THEME.warning);
             if (state._shouldAutoResume && state.totalCreated < state.targetAccounts) {
                 addLog('▶', 'Tự động chạy tiếp sau reload...');
@@ -1288,7 +1309,6 @@
         } else {
             renderStatus('🟢 Sẵn sàng — bấm ▶ BẮT ĐẦU', THEME.success);
         }
-        addLog('→', `Tool đã load. Target: ${CONFIG.maxAccounts} acc`);
     }
 
     window.addEventListener('beforeunload', () => {
